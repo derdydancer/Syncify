@@ -213,9 +213,10 @@ class Data_Handler:
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.thread_limit) as executor:
             futures = []
             for song in playlist_tracks:
-                song_artist = song["Artist"]
-                song_title = song["Title"]
-                song_album = song["Album"]
+                # limit length of artist name to 64 characters
+                song_artist = self.string_cleaner(song["Artist"][:64])
+                song_title = self.string_cleaner(song["Title"][:64])
+                song_album = self.string_cleaner(song["Album"][:64])
                 full_file_name = song_title
                 cleaned_full_file_name = self.string_cleaner(full_file_name)
                 
@@ -257,50 +258,55 @@ class Data_Handler:
             logger.error(str(e))
 
     def download_song(self, song, playlist):
-        if self.media_server_scan_req_flag == False:
-            self.media_server_scan_req_flag = True
-        link = song["link"]
-        title = song["title"]
-        artist = song["Artist"]
-        album = song["Album"]
-        sleep = playlist["Sleep"] if playlist["Sleep"] else 0
-        
-        artist_folder = self.string_cleaner(artist)  # Clean and prepare artist name for folder creation
-        album_folder = self.string_cleaner(album)  # Clean and prepare album/playlist name for folder creation
-        track_file_name = self.string_cleaner(title)  # Prepare track title for file naming
+        try:
+            if self.media_server_scan_req_flag == False:
+                self.media_server_scan_req_flag = True
+            link = song["link"]
+            title = song["title"]
+            artist = song["Artist"]
+            album = song["Album"]
+            sleep = playlist["Sleep"] if playlist["Sleep"] else 0
+            
+            artist_folder = self.string_cleaner(artist)  # Clean and prepare artist name for folder creation
+            album_folder = self.string_cleaner(album)  # Clean and prepare album/playlist name for folder creation
+            track_file_name = self.string_cleaner(title)  # Prepare track title for file naming
 
-        # Construct the full path including artist and album directories
-        full_folder_path = os.path.join(self.playlist_folder_path, artist_folder, album_folder)
+            # Construct the full path including artist and album directories
+            full_folder_path = os.path.join(self.playlist_folder_path, artist_folder, album_folder)
 
-        # Check if the full folder path exists, if not, create it
-        if not os.path.exists(full_folder_path):
-            os.makedirs(full_folder_path)
+            # Check if the full folder path exists, if not, create it
+            if not os.path.exists(full_folder_path):
+                os.makedirs(full_folder_path)
 
-        # Update full_file_path to include the new folder structure and file name
-        full_file_path = os.path.join(full_folder_path, track_file_name)
+            # Update full_file_path to include the new folder structure and file name
+            full_file_path = os.path.join(full_folder_path, track_file_name)
 
-        ydl_opts = {
-            "ffmpeg_location": "/usr/bin/ffmpeg",
-            "format": "251/best",
-            "outtmpl": full_file_path,
-            "quiet": False,
-            "progress_hooks": [self.progress_callback],
-            "sleep_interval": sleep,
-            "writethumbnail": True,
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "0",
-                },
-                {
-                    "key": "EmbedThumbnail",
-                },
-                {
-                    "key": "FFmpegMetadata",
-                },
-            ],
-        }
+            ydl_opts = {
+                "ffmpeg_location": "/usr/bin/ffmpeg",
+                "format": "251/best",
+                "outtmpl": full_file_path,
+                "quiet": False,
+                "progress_hooks": [self.progress_callback],
+                "sleep_interval": sleep,
+                "writethumbnail": True,
+                "postprocessors": [
+                    {
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": "mp3",
+                        "preferredquality": "0",
+                    },
+                    {
+                        "key": "EmbedThumbnail",
+                    },
+                    {
+                        "key": "FFmpegMetadata",
+                    },
+                ],
+            }
+            
+        except Exception as e:
+            logger.error(f"Error downloading song: {title}. Error message: {e}")
+            song["Status"] = "Search Failed"
 
         try:
             yt_downloader = yt_dlp.YoutubeDL(ydl_opts)
