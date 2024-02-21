@@ -11,6 +11,25 @@
 
 Web GUI for synchronising and fetching content from a Spotify playlist.
 
+## This is a fork
+This fork differs in that it creates a folder structure to comply with jellyfin. Just add the playlist folder to your music library on jellyfin
+```
+Playlist
+├── Artist 1
+│   ├── Album A
+│   │   ├── Song 1.flac
+│   │   ├── Song 2.flac
+│   │   └── Song 3.flac
+│   └── Album B
+│       ├── Track 1.m4a
+│       ├── Track 2.m4a
+│       └── Track 3.m4a
+└── Artist 2
+    └── Album A
+        └── Song 1.flac
+```
+
+https://jellyfin.org/docs/general/server/media/music/
 
 ## Run using docker-compose
 
@@ -18,7 +37,7 @@ Web GUI for synchronising and fetching content from a Spotify playlist.
 version: "2.1"
 services:
   syncify:
-    image: thewicklowwolf/syncify:latest
+    build: .
     container_name: syncify
     volumes:
       - /config/syncify:/syncify/config
