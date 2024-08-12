@@ -7,13 +7,33 @@
 
 Syncify is a tool for synchronising and fetching content from Spotify or YouTube playlists via yt-dlp.
 
+## This is a fork
+This fork differs in that it creates a folder structure to comply with jellyfin. Just add the playlist folder to your music library on jellyfin
+```
+Playlist
+├── Artist 1
+│   ├── Album A
+│   │   ├── Song 1.flac
+│   │   ├── Song 2.flac
+│   │   └── Song 3.flac
+│   └── Album B
+│       ├── Track 1.m4a
+│       ├── Track 2.m4a
+│       └── Track 3.m4a
+└── Artist 2
+    └── Album A
+        └── Song 1.flac
+```
+
+https://jellyfin.org/docs/general/server/media/music/
+
 
 ## Run using docker-compose
 
 ```yaml
 services:
   syncify:
-    image: thewicklowwolf/syncify:latest
+    build: .
     container_name: syncify
     volumes:
       - /path/to/config:/syncify/config

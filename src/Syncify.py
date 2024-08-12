@@ -146,7 +146,7 @@ class DataHandler:
                     track_title = item["name"]
                     artists = [artist["name"] for artist in item["artists"]]
                     artists_str = ", ".join(artists)
-                    track_list.append({"Artist": artists_str, "Title": track_title, "Status": "Queued", "Folder": album_name})
+                    track_list.append({"Artist": artists_str, "Title": track_title, "Status": "Queued", "Folder": album_name, "Album": album_name})
                 except:
                     pass
 
@@ -154,7 +154,7 @@ class DataHandler:
             playlist = sp.playlist(link)
             playlist_name = playlist["name"]
             number_of_tracks = playlist["tracks"]["total"]
-            fields = "items.track(name,artists.name)"
+            fields = "items.track(name,artists.name,album.name)"
 
             offset = 0
             limit = 100
@@ -169,8 +169,9 @@ class DataHandler:
                     track = item["track"]
                     track_title = track["name"]
                     artists = [artist["name"] for artist in track["artists"]]
+                    album_name = track["album"]["name"]
                     artists_str = ", ".join(artists)
-                    track_list.append({"Artist": artists_str, "Title": track_title, "Status": "Queued", "Folder": playlist_name})
+                    track_list.append({"Artist": artists_str, "Title": track_title, "Status": "Queued", "Folder": playlist_name, "Album": album_name})
                 except:
                     pass
 
@@ -187,13 +188,14 @@ class DataHandler:
             for track in playlist["tracks"]:
                 track_title = track["title"]
                 artist_str = ", ".join([a["name"] for a in track["artists"]])
-                track_list.append({"Artist": artist_str, "Title": track_title, "Status": "Queued", "Folder": playlist_name, "VideoID": track["videoId"]})
+                album_name = track["album"]
+                track_list.append({"Artist": artist_str, "Title": track_title, "Status": "Queued", "Folder": playlist_name, "Album": album_name, "VideoID": track["videoId"]})
         else:
             self.logger.error("Unsupported youtube playlist url! It must have a list=<playlist_id> query params.")
 
         return track_list
 
-    def find_youtube_link(self, artist, title):
+    def find_youtube_link(self, artist, title, album):
         self.ytmusic = YTMusic()
         search_results = self.ytmusic.search(query=f"{artist} - {title}", filter="songs", limit=5)
         first_result = None
@@ -253,8 +255,20 @@ class DataHandler:
         with concurrent.futures.ThreadPoolExecutor(max_workers=self.thread_limit) as executor:
             futures = []
             for song in playlist_tracks:
-                full_file_name = f'{song["Title"]} - {song["Artist"]}'
+                # limit length of artist name to 64 characters
+                song_artist = self.string_cleaner(song["Artist"][:64])
+                song_title = self.string_cleaner(song["Title"][:64])
+                song_album = self.string_cleaner(song["Album"][:64])
+                full_file_name = song_title
                 cleaned_full_file_name = self.string_cleaner(full_file_name)
+
+                # Construct the full path including artist and album directories
+                full_folder_path = os.path.join(self.playlist_folder_path, song_artist, song_album)
+                if not os.path.exists(full_folder_path):
+                    os.makedirs(full_folder_path)
+                raw_directory_list = os.listdir(full_folder_path)
+                directory_list = self.string_cleaner(raw_directory_list)
+
                 if cleaned_full_file_name not in directory_list:
                     song_artist = song["Artist"]
                     song_title = song["Title"]
@@ -263,19 +277,19 @@ class DataHandler:
                         song_list_to_download.append({"title": cleaned_full_file_name, "link": song_actual_link})
                         self.logger.warning(f"Added Song to Download List: {cleaned_full_file_name} : {song_actual_link}")
                     else:
-                        future = executor.submit(self.find_youtube_link, song_artist, song_title)
-                        futures.append((future, cleaned_full_file_name))
+                        future = executor.submit(self.find_youtube_link, song_artist, song_title, song_album)
+                        futures.append((future, cleaned_full_file_name, song_artist, song_album))
                         self.logger.warning(f"Searching for Song: {cleaned_full_file_name}")
                 else:
                     self.logger.warning(f"File Already in folder: {cleaned_full_file_name}")
 
-            for future, file_name in futures:
+            for future, file_name, artist, album in futures:
                 song_actual_link = future.result()
                 if song_actual_link:
-                    song_list_to_download.append({"title": file_name, "link": song_actual_link})
-                    self.logger.warning(f"Added Song to Download List: {file_name} : {song_actual_link}")
+                    song_list_to_download.append({"title": file_name, "link": song_actual_link, "Artist": artist, "Album": album})
+                    self.logger.warning(f"Added Song to Download List: {artist}/{album}/{file_name} : {song_actual_link}")
                 else:
-                    self.logger.error(f"No Link Found for: {file_name}")
+                    self.logger.error(f"No Link Found for: {artist}/{album}/{file_name}")
 
         return song_list_to_download
 
@@ -293,33 +307,54 @@ class DataHandler:
             self.logger.error(str(e))
 
     def download_song(self, song, playlist):
-        if self.media_server_scan_req_flag == False:
-            self.media_server_scan_req_flag = True
-        link = song["link"]
-        title = song["title"]
-        sleep = playlist["Sleep"] if playlist["Sleep"] else 0
-        full_file_path = os.path.join(self.playlist_folder_path, title)
-        ydl_opts = {
-            "ffmpeg_location": "/usr/bin/ffmpeg",
-            "format": "251/bestaudio",
-            "outtmpl": full_file_path,
-            "quiet": False,
-            "progress_hooks": [self.progress_callback],
-            "writethumbnail": True,
-            "postprocessors": [
-                {
-                    "key": "FFmpegExtractAudio",
-                    "preferredcodec": "mp3",
-                    "preferredquality": "0",
-                },
-                {
-                    "key": "EmbedThumbnail",
-                },
-                {
-                    "key": "FFmpegMetadata",
-                },
-            ],
-        }
+        try:
+            if self.media_server_scan_req_flag == False:
+                self.media_server_scan_req_flag = True
+            link = song["link"]
+            title = song["title"]
+            artist = song["Artist"]
+            album = song["Album"]
+            sleep = playlist["Sleep"] if playlist["Sleep"] else 0
+
+            artist_folder = self.string_cleaner(artist)  # Clean and prepare artist name for folder creation
+            album_folder = self.string_cleaner(album)  # Clean and prepare album/playlist name for folder creation
+            track_file_name = self.string_cleaner(title)  # Prepare track title for file naming
+
+            # Construct the full path including artist and album directories
+            full_folder_path = os.path.join(self.playlist_folder_path, artist_folder, album_folder)
+
+            # Check if the full folder path exists, if not, create it
+            if not os.path.exists(full_folder_path):
+                os.makedirs(full_folder_path)
+
+            # Update full_file_path to include the new folder structure and file name
+            full_file_path = os.path.join(full_folder_path, track_file_name)
+
+            ydl_opts = {
+                "ffmpeg_location": "/usr/bin/ffmpeg",
+                "format": "251/bestaudio",
+                "outtmpl": full_file_path,
+                "quiet": False,
+                "progress_hooks": [self.progress_callback],
+                "writethumbnail": True,
+                "postprocessors": [
+                    {
+                        "key": "FFmpegExtractAudio",
+                        "preferredcodec": "mp3",
+                        "preferredquality": "0",
+                    },
+                    {
+                        "key": "EmbedThumbnail",
+                    },
+                    {
+                        "key": "FFmpegMetadata",
+                    },
+                ],
+            }
+
+        except Exception as e:
+            logger.error(f"Error downloading song: {title}. Error message: {e}")
+            song["Status"] = "Search Failed"
 
         if self.crop_album_art == "true":
             ydl_opts["postprocessor_args"] = {"thumbnailsconvertor+ffmpeg_o": ["-c:v", "mjpeg", "-vf", "crop='if(gt(ih,iw),iw,ih)':'if(gt(iw,ih),ih,iw)'"]}
